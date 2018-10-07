@@ -46,18 +46,25 @@ void server_func(struct hostent *client, int portno, int dgramflag) {
     if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
         othererr();
 
-    listen(sockfd, 5);
-    clilen = sizeof(cli_addr);
-    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-    if (newsockfd < 0) othererr();
+    // listen and accept only in TCP
+    if (!dgramflag) {
+        listen(sockfd, 5);
+        clilen = sizeof(cli_addr);
+        newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
+        if (newsockfd < 0) othererr();
+    }
 
     bzero(buffer, 256);
-    // infite loop until cancelled with ctrl+D or if client exits
+    // infite loop until cancelled with ctrl+D or if client exits    
     while (1) {
-        // recv msg from client
-        n = read(newsockfd, buffer, 255);
+        // recvfrom client if -u, read otherwise
+        if (dgramflag)
+            n = recvfrom(sockfd, buffer, 255, 0,
+                (struct sockaddr *) &cli_addr, &clilen);
+        else
+            n = read(newsockfd, buffer, 255);
         if (n < 0) othererr();
-        if (n == 0) break; // client exits
+        if (!dgramflag && n == 0) break; // client exits in TCP
         printf("%s", buffer);
 
         bzero(buffer, 256); // clean buffer
@@ -69,7 +76,7 @@ void server_func(struct hostent *client, int portno, int dgramflag) {
 
 // client
 void client_func(struct hostent *server, int portno, int dgramflag) {
-    int sockfd, n;
+    int sockfd, servlen, n;
     char buffer[256];
     struct sockaddr_in serv_addr;
 
@@ -86,15 +93,22 @@ void client_func(struct hostent *server, int portno, int dgramflag) {
         server->h_length);
     serv_addr.sin_port = htons(portno);
 
-    if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
-        othererr();
+    // connect only in TCP
+    if (!dgramflag)
+        if (connect(sockfd, (struct sockaddr *) &serv_addr, 
+            sizeof(serv_addr)) < 0)
+            othererr();
 
     // infinite loop while input, unless cancelled or server exits
     bzero(buffer, 256);
     while (1) {
         fgets(buffer, 255, stdin);
-        // send msg to server
-        n = write(sockfd, buffer, strlen(buffer));
+        // sendto server for -u and write otherwise
+        if (dgramflag)
+            n = sendto(sockfd, buffer, strlen(buffer), 0, 
+                (struct sockaddr *) &serv_addr, sizeof(serv_addr));
+        else
+            n = write(sockfd, buffer, strlen(buffer));
         if (n < 0) othererr();
         if (n == 0) break;
 
