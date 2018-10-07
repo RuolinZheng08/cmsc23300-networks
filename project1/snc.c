@@ -14,8 +14,8 @@ void inputerr() {
 }
 
 void othererr() {
-    perror("err");
-    // fprintf(stderr, "internal error");
+    // perror("err"); // debug
+    fprintf(stderr, "internal error\n");
     exit(1);
 }
 
@@ -52,9 +52,16 @@ void server_func(struct hostent *client, int portno, int dgramflag) {
     if (newsockfd < 0) othererr();
 
     bzero(buffer, 256);
-    n = read(newsockfd, buffer, 255);
-    if (n < 0) othererr();
-    printf("%s", buffer);
+    // infite loop until cancelled with ctrl+D or if client exits
+    while (1) {
+        // recv msg from client
+        n = read(newsockfd, buffer, 255);
+        if (n < 0) othererr();
+        if (n == 0) break; // client exits
+        printf("%s", buffer);
+
+        bzero(buffer, 256); // clean buffer
+    }
 
     if (close(sockfd) < 0) othererr();
     return;
@@ -82,10 +89,17 @@ void client_func(struct hostent *server, int portno, int dgramflag) {
     if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
         othererr();
 
+    // infinite loop while input, unless cancelled or server exits
     bzero(buffer, 256);
-    fgets(buffer, 255, stdin);
-    n = write(sockfd, buffer, strlen(buffer));
-    if (n < 0) othererr();
+    while (1) {
+        fgets(buffer, 255, stdin);
+        // send msg to server
+        n = write(sockfd, buffer, strlen(buffer));
+        if (n < 0) othererr();
+        if (n == 0) break;
+
+        bzero(buffer, 256);
+    }
 
     if (close(sockfd) < 0) othererr();
     return;
