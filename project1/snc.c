@@ -21,8 +21,8 @@ void othererr() {
 
 // server
 void server_func(struct hostent *client, int portno, int dgramflag) {
-    int sockfd, newsockfd, clilen, n;
-    char buffer[256];
+    int sockfd, newsockfd, clilen, pid, n;
+    char buffer[256], newbuff[256];
     struct sockaddr_in serv_addr, cli_addr;
 
     // if -u is on, use UDP
@@ -55,6 +55,7 @@ void server_func(struct hostent *client, int portno, int dgramflag) {
     }
 
     bzero(buffer, 256);
+    bzero(newbuff, 256);
     // infite loop until cancelled with ctrl+D or if client exits    
     while (1) {
         // recvfrom client if -u, read otherwise
@@ -66,8 +67,7 @@ void server_func(struct hostent *client, int portno, int dgramflag) {
         if (n < 0) othererr();
         if (!dgramflag && n == 0) break; // client exits in TCP
         printf("%s", buffer);
-
-        bzero(buffer, 256); // clean buffer
+        bzero(buffer, 256);
     }
 
     if (close(sockfd) < 0) othererr();
@@ -102,7 +102,8 @@ void client_func(struct hostent *server, int portno, int dgramflag) {
     // infinite loop while input, unless cancelled or server exits
     bzero(buffer, 256);
     while (1) {
-        fgets(buffer, 255, stdin);
+        if (fgets(buffer, 255, stdin) == NULL) break;
+        if (feof(stdin)) break;
         // sendto server for -u and write otherwise
         if (dgramflag)
             n = sendto(sockfd, buffer, strlen(buffer), 0, 
@@ -111,7 +112,6 @@ void client_func(struct hostent *server, int portno, int dgramflag) {
             n = write(sockfd, buffer, strlen(buffer));
         if (n < 0) othererr();
         if (n == 0) break;
-
         bzero(buffer, 256);
     }
 
@@ -128,17 +128,21 @@ int main(int argc, char **argv) {
     // client: ./snc localhost 9999
     // server: ./snc -l 9999 or ./snc -l localhost 9999
     if (argc < 3) inputerr();
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "-l"))
-            serverflag = 1;
-        else if (!strcmp(argv[i], "-u"))
-            dgramflag = 1;
+    for (int i = 1; i < 3; i++) {
+        if (argv[i][0] == '-') {
+            if (!strcmp(argv[i], "-l"))
+                serverflag = 1;
+            else if (!strcmp(argv[i], "-u"))
+                dgramflag = 1;
+            else
+                inputerr();
+        }
     }
     hostname = argv[argc-2];
-    portno = atoi(argv[argc-1]);
     if (serverflag && (!strcmp(hostname, "-u") || !strcmp(hostname, "-l")))
         hostname = NULL;
-    if (portno < 1024) inputerr();
+    portno = atoi(argv[argc-1]);
+    if (portno < 1024 || portno > 65535) othererr();
     if (!serverflag && hostname == NULL) inputerr();
 
     // specific server to connect to / specific client to listen to
