@@ -27,6 +27,8 @@ In client, when CTRL+D is pressed and stdin is empty, the client exits
 immediately and simultaneously shuts down the server. If stdin is non-empty, 
 the message is sent and printed on the server and execution is not interrupted.
 
+Functions: see snc.c comments
+
 Project Requirements / Error Handling:
 - Given invalid options: print input error help message and exit
 - Missing required options: print input error help message and exit
