@@ -23,20 +23,22 @@ This, however, does not affect the server, which could continue to read and
 output message if other UDP client connects.
 
 Handling CTRL+D in TCP:
-In client, when CTRL+D is pressed and stdin is empty, exits immediately and
-simultaneously shuts down the server. If stdin is non-empty, pressing once
-and a second time on CTRL+D shuts down both the client and the server.
+In client, when CTRL+D is pressed and stdin is empty, the client exits 
+immediately and simultaneously shuts down the server. If stdin is non-empty, 
+the message is sent and printed on the server and execution is not interrupted.
+
+Functions: see snc.c comments
 
 Project Requirements / Error Handling:
 - Given invalid options: print input error help message and exit
 - Missing required options: print input error help message and exit
-- Given illegal args like port 111111 and IP 897.233: print 'internal error'
-  and exit
+- Given illegal args like port 111111 and IP 897.233:
+  print input error help message and exit
 - (Server) Designated port used by another application: 'internal error'
 - (Client) Could not connect to designated server: 'internal error'
 
-Issues (Resolved):
-CTRL+D to stop TCP server.
+Issues Encountered:
+CTRL+D implementation in TCP client.
 Forking another process to allow for simultaneous read and write.
 
 Sample execution:

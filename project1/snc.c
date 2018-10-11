@@ -139,11 +139,13 @@ int main(int argc, char **argv) {
         }
     }
     hostname = argv[argc-2];
-    if (serverflag && (!strcmp(hostname, "-u") || !strcmp(hostname, "-l")))
+    if (!strcmp(hostname, "-u") || !strcmp(hostname, "-l")) {
         hostname = NULL;
-    portno = atoi(argv[argc-1]);
-    if (portno < 1024 || portno > 65535) othererr();
+        if (argv[1][0] != '-') inputerr(); // check against ./snc hello -l 9999
+    }
     if (!serverflag && hostname == NULL) inputerr();
+    portno = atoi(argv[argc-1]);
+    if (portno < 1024 || portno > 65535) inputerr(); 
 
     // specific server to connect to / specific client to listen to
     if (hostname != NULL) {
