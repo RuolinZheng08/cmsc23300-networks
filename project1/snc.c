@@ -128,18 +128,24 @@ int main(int argc, char **argv) {
     // client: ./snc localhost 9999
     // server: ./snc -l 9999 or ./snc -l localhost 9999
     if (argc < 3) inputerr();
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "-l"))
-            serverflag = 1;
-        else if (!strcmp(argv[i], "-u"))
-            dgramflag = 1;
+    for (int i = 1; i < 3; i++) {
+        if (argv[i][0] == '-') {
+            if (!strcmp(argv[i], "-l"))
+                serverflag = 1;
+            else if (!strcmp(argv[i], "-u"))
+                dgramflag = 1;
+            else
+                inputerr();
+        }
     }
     hostname = argv[argc-2];
-    portno = atoi(argv[argc-1]);
-    if (serverflag && (!strcmp(hostname, "-u") || !strcmp(hostname, "-l")))
+    if (!strcmp(hostname, "-u") || !strcmp(hostname, "-l")) {
         hostname = NULL;
-    if (portno < 1024) inputerr();
+        if (argv[1][0] != '-') inputerr(); // check against ./snc hello -l 9999
+    }
     if (!serverflag && hostname == NULL) inputerr();
+    portno = atoi(argv[argc-1]);
+    if (portno < 1024 || portno > 65535) inputerr(); 
 
     // specific server to connect to / specific client to listen to
     if (hostname != NULL) {
