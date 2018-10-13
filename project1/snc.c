@@ -127,13 +127,15 @@ int main(int argc, char **argv) {
 
     // client: ./snc localhost 9999
     // server: ./snc -l 9999 or ./snc -l localhost 9999
-    if (argc < 3) inputerr();
+    if (argc < 3 || argc > 5) inputerr();
     for (int i = 1; i < 3; i++) {
         if (argv[i][0] == '-') {
             if (!strcmp(argv[i], "-l"))
-                serverflag = 1;
+                if (!serverflag) serverflag = 1;
+                else inputerr();
             else if (!strcmp(argv[i], "-u"))
-                dgramflag = 1;
+                if (!dgramflag) dgramflag = 1;
+                else inputerr();
             else
                 inputerr();
         }

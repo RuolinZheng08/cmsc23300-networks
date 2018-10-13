@@ -24,8 +24,8 @@ output message if other UDP client connects.
 
 Handling CTRL+D in TCP:
 In client, when CTRL+D is pressed and stdin is empty, the client exits 
-immediately and simultaneously shuts down the server. If stdin is non-empty, 
-the message is sent and printed on the server and execution is not interrupted.
+immediately and simultaneously shuts down the server. Does not handle the case
+in which stdin is non-empty.
 
 Functions: see snc.c comments
 
