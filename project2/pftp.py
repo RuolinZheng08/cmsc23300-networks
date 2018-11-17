@@ -69,7 +69,7 @@ def response_handler(sock, exp_code, logfn):
     return data_port
   return None
 
-def session_handler(sess, logfn):
+def session_handler(sess, logfn, data=bytes()):
   # Control Process
   ctrl_sock = socket.socket()
   try:
@@ -98,7 +98,6 @@ def session_handler(sess, logfn):
   response_handler(ctrl_sock, 150, None)
 
   # Download
-  data = bytes()
   while True:
     chunk = data_sock.recv(2048)
     data += chunk
@@ -116,16 +115,36 @@ def main():
     myexit(0)
 
   if args.thread:
+    data = bytes()
+    sessions = []
+    threads = []
     lines = open(args.thread, 'r').readlines()
-    print(lines)
+
+    for line in lines:
+      line = re.sub(f'ftp://', '', line.rstrip())
+      configs = re.split(r'[:@/]', line)
+      newsess = Session(configs[3], configs[2], None, configs[0], configs[1])
+      sessions.append(newsess)
+
+    for sess in sessions:
+      newthread = threading.Thread(target=session_handler, \
+        args=(sess, args.log), kwargs={'data': data})
+      newthread.start()
+      threads.append(newthread)
+      tid = newthread.name
+
+    for thread in threads:
+      thread.join()
 
   elif args.file and args.hostname:
     sess = Session(args.file, args.hostname, args.port, \
       args.username, args.password)
     data = session_handler(sess, args.log)
-    with open(sess.file, 'wb') as fout:
-      fout.write(data)
-    myexit(0)
+
+  # if data:
+  #   with open(sess.file, 'wb') as fout:
+  #     fout.write(data)
+  #   myexit(0)
 
   return
 
