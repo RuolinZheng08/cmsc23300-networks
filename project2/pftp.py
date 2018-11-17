@@ -3,14 +3,14 @@
 import argparse, os, sys, socket, re
 
 exit_codes = {
-  0: 'Operation successfully completed\n',
-  1: 'Can\'t connect to server\n',
-  2: 'Authentication failed\n',
-  3: 'File not found\n',
-  4: 'Syntax error in client request\n',
-  5: 'Command not implemented by server,\n',
-  6: 'Operation not allowed by server\n',
-  7: 'Generic error\n',
+  0: 'Operation successfully completed',
+  1: 'Can\'t connect to server',
+  2: 'Authentication failed',
+  3: 'File not found',
+  4: 'Syntax error in client request',
+  5: 'Command not implemented by server',
+  6: 'Operation not allowed by server',
+  7: 'Generic error',
 }
 
 serv_resps = {
@@ -39,12 +39,14 @@ def check_code(response, expected):
     myexit(serv_resps.get(response, 7))
   return
 
-def print_log(fname, text):
+def print_log(fname, log_list):
   if fname == '-':
-    print(text)
+    for log in log_list:
+      print(log, end='')
   else:
     with open(fname, 'w') as fout:
-      fout.write(text)
+      for log in log_list:
+        fout.write(log)
 
 def parse_args():
   parser = argparse.ArgumentParser()
@@ -71,7 +73,8 @@ def parse_args():
   return args
 
 def handle_session(sess):
-  log_text = ''
+  log_list = []
+  response = None
 
   # Control Process
   ctrl_sock = socket.socket()
@@ -80,16 +83,39 @@ def handle_session(sess):
   except:
     myexit(1)
 
-  serv_code = int(ctrl_sock.recv(255).decode()[:3])
-  check_code(serv_code, 220)
-  ctrl_sock.send(f'USER {sess.username}\r\n'.encode())
-  user_code = int(ctrl_sock.recv(255).decode()[:3])
-  check_code(user_code, 331)
-  ctrl_sock.send(f'PASS {sess.password}\r\n'.encode())
-  pass_code = int(ctrl_sock.recv(255).decode()[:3])
-  check_code(pass_code, 230)
-  ctrl_sock.send(f'PASV\r\n'.encode())
+  # Connect
   response = ctrl_sock.recv(255).decode()
+  serv_code = int(response[:3])
+  check_code(serv_code, 220)
+  log_list.append(f'S->C: {response[:3]} Server {sess.hostname}\n')
+
+  # USER
+  request = f'USER {sess.username}\r\n'
+  ctrl_sock.send(request.encode())
+  log_list.append(f'C->S: {request}')
+
+  response = ctrl_sock.recv(255).decode()
+  log_list.append(f'S->C: {response}')
+  user_code = int(response[:3])
+  check_code(user_code, 331)
+
+  # PASS
+  request = f'PASS {sess.password}\r\n'
+  ctrl_sock.send(request.encode())
+  log_list.append(f'C->S: {request}')
+
+  response = ctrl_sock.recv(255).decode()
+  log_list.append(f'S->C: {response}')
+  pass_code = int(response[:3])
+  check_code(pass_code, 230)
+
+  # PASV
+  request = f'PASV\r\n'
+  ctrl_sock.send(request.encode())
+  log_list.append(f'C->S: {request}')
+
+  response = ctrl_sock.recv(255).decode()
+  log_list.append(f'S->C: {response}')
   pasv_code = int(response[:3])
   check_code(pasv_code, 227)
   data_port = re.findall(r'\d+', response)[-2:]
@@ -106,17 +132,29 @@ def handle_session(sess):
   response = ctrl_sock.recv(255).decode()
   fsize = int(re.findall(r'\d+', response)[-1])
 
-  ctrl_sock.send(f'RETR {sess.file}\r\n'.encode())
-  count = 0
-  with open(sess.file, 'wb') as fout:
-    while count < fsize:
-      data = bytes(data_sock.recv(1024))
-      fout.write(data)
-      count += 1024
+  # Transfer binary files
+  request = f'RETR {sess.file}\r\n'
+  ctrl_sock.send(request.encode())
+  log_list.append(f'C->S: {request}')
+
+  response = ctrl_sock.recv(255).decode()
+  log_list.append(f'S->C: {response}')
+  binf_code = int(response[:3])
+  check_code(binf_code, 150)
+
+  try:
+    with open(sess.file, 'wb') as fout:
+      while True:
+        data = data_sock.recv(2048)
+        if len(data) < 1:
+          break
+        fout.write(data)
+  except:
+    myexit(7)
 
   ctrl_sock.close()
   
-  return log_text
+  return log_list
 
 def main():
   args = parse_args()
@@ -124,10 +162,12 @@ def main():
     sess = Session(file=args.file, hostname=args.hostname, \
       port=args.port, username=args.username, password=args.password)
 
-    log_text = handle_session(sess)
+    log_list = handle_session(sess)
 
     if args.log:
-      print_log(args.log, log_texts)
+      print_log(args.log, log_list)
+
+    myexit(0)
   
 if __name__ == '__main__':
   main()
