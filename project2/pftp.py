@@ -101,8 +101,18 @@ def handle_session(sess):
     data_sock.connect((sess.hostname, data_port))
   except:
     myexit(1)
-  ctrl_sock.send(f'LIST\r\n'.encode())
-  print(data_sock.recv(255).decode())
+  
+  ctrl_sock.send(f'SIZE {sess.file}\r\n'.encode())
+  response = ctrl_sock.recv(255).decode()
+  fsize = int(re.findall(r'\d+', response)[-1])
+
+  ctrl_sock.send(f'RETR {sess.file}\r\n'.encode())
+  count = 0
+  with open(sess.file, 'wb') as fout:
+    while count < fsize:
+      data = bytes(data_sock.recv(1024))
+      fout.write(data)
+      count += 1024
 
   ctrl_sock.close()
   
