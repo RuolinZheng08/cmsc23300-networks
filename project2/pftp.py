@@ -63,13 +63,19 @@ def response_handler(sock, exp_code, logfn):
   response = sock.recv(255).decode()
   print(f'S->C: {response}', end='')
   check_code(int(response[:3]), exp_code)
+
   if int(response[:3]) == 227:
     data_port = re.findall(r'\d+', response)[-2:]
     data_port = int(data_port[0]) * 256 + int(data_port[1])
     return data_port
+
+  if int(response[:3]) == 213:
+    fsize = int(re.split(r'\s', response)[1])
+    return fsize
+
   return None
 
-def session_handler(sess, logfn, data, start=None, step=None):
+def session_handler(sess, logfn, data, num_thrd=None, tid=None):
   # Control Process
   ctrl_sock = socket.socket()
   try:
@@ -93,33 +99,57 @@ def session_handler(sess, logfn, data, start=None, step=None):
   except:
     myexit(1)
 
-  # REST -> TYPE I
-  # request_handler(ctrl_sock, f'REST 233500\r\n', None)
-  # response_handler(ctrl_sock, 150, None)
-  request_handler(ctrl_sock, f'TYPE I\r\n', None)
-  response_handler(ctrl_sock, 200, None)
+  # SIZE
+  if num_thrd:
+    request_handler(ctrl_sock, f'SIZE {sess.file}\r\n', None)
+    fsize = response_handler(ctrl_sock, 213, None)
+    step = fsize // num_thrd
+    startpos = tid * step
+    endpos = (tid + 1) * step if tid != num_thrd - 1 else fsize
+    step = endpos - startpos
+
+  # Thread-only: REST -> TYPE I
+    request_handler(ctrl_sock, f'REST {startpos}\r\n', None)
+    response_handler(ctrl_sock, 350, None)
+    request_handler(ctrl_sock, f'TYPE I\r\n', None)
+    response_handler(ctrl_sock, 200, None)
 
   # RETR
   request_handler(ctrl_sock, f'RETR {sess.file}\r\n', None)
-  response_handler(ctrl_sock, 350, None)
+  response_handler(ctrl_sock, 150, None)
 
-  # Download
-  while True:
-    chunk = data_sock.recv(2048)
-    data.extend(chunk)
-    if len(chunk) < 1:
-      break
+  # Normal Download
+  # data is a single bytearray
+  if not num_thrd:
+    while True:
+      chunk = data_sock.recv(1024)
+      data.extend(chunk)
+      if len(chunk) < 1:
+        break
+
+  # Thread-only: Parallel Download
+  # data is a dict containing bytearrays corresponding to each thread
+  else:
+    count = 0
+    temp = bytearray()
+    while True:
+      chunk = data_sock.recv(2048)
+      temp.extend(chunk)
+      count += len(chunk)
+      if len(chunk) < 1 or count >= endpos:
+        data[tid] = temp[:step]
+        break
 
   ctrl_sock.close()
 
   return data
 
 def main():
-  data = bytearray()
   args = parse_args()
   if args.thread and (args.file or args.hostname):
     myexit(4)
 
+  # Thread
   if args.thread:
     sessions = []
     threads = []
@@ -131,9 +161,11 @@ def main():
       newsess = Session(configs[3], configs[2], args.port, configs[0], configs[1])
       sessions.append(newsess)
 
-    for sess in sessions:
+    datalist = {}
+    for sess, tid in zip(sessions, range(len(sessions))):
       newthread = threading.Thread(target=session_handler, \
-        args=(sess, args.log, data))
+        args=(sess, args.log, datalist), \
+        kwargs={'num_thrd': len(sessions), 'tid': tid})
       threads.append(newthread)
 
     for thread in threads:
@@ -142,17 +174,21 @@ def main():
     for thread in threads:
       thread.join()
 
+    with open(sess.file, 'wb') as fout:
+      for data in datalist.values():
+        fout.write(data)
+
+  # Normal
   elif args.file and args.hostname:
     sess = Session(args.file, args.hostname, args.port, \
       args.username, args.password)
-    data = session_handler(sess, args.log, data)
+    data = session_handler(sess, args.log, bytearray())
 
-  if data:
-    with open(sess.file, 'wb') as fout:
-      fout.write(data)
-    myexit(0)
+    if data:
+      with open(sess.file, 'wb') as fout:
+        fout.write(data)
 
-  return
+  myexit(0)
 
 if __name__ == '__main__':
   main()
