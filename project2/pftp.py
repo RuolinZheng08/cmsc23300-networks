@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse, os, sys, socket, re, threading
+import argparse, os, sys, socket, re, threading, time
 
 exit_codes = {
   0: 'Operation successfully completed',
@@ -13,7 +13,14 @@ exit_codes = {
   7: 'Generic error',
 }
 
+serv_resps = {
+  500: 4,
+  530: 2,
+  550: 3,
+}
+
 class Session(object):
+  '''Contain the specified file, hostname, port, username, and password'''
   def __init__(self, *args):
     self.file = args[0] or None
     self.hostname = args[1] or None
@@ -22,13 +29,19 @@ class Session(object):
     self.password = args[4] or 'user@localhost.localnet'
 
 def myexit(errno):
-  print(f'Exit {str(errno)}: - {exit_codes.get(errno, exit_codes.get(7))}')
+  '''Print error code and message to stderr and exit with error code'''
+  print(f'Exit {str(errno)}: - {exit_codes.get(errno, exit_codes.get(7))}', \
+    file=sys.stderr)
   sys.exit(errno)
 
 def check_code(result, expected):
-  pass
+  '''Check the response code from the FTP server; exit if mismatch'''
+  if not result == expected:
+    myexit(serv_resps.get(result, 7))
+  return None
 
 def parse_args():
+  '''Handle command line arguments'''
   parser = argparse.ArgumentParser()
   parser.add_argument('-v', '--version', help='name, version, author of the \
     application', action='store_true')
@@ -54,14 +67,22 @@ def parse_args():
 
   return args
 
-def request_handler(sock, request, logfn):
+def request_handler(sock, request, logfd):
+  '''Encode, send and log a request sent from FTP client to server'''
   sock.send(request.encode())
-  print(f'C->S: {request}', end='')
+  if logfd == '-':
+    print(f'C->S: {request}', end='')
+  elif logfd:
+    logfd.write(f'C->S: {request}')
   return None
 
-def response_handler(sock, exp_code, logfn):
+def response_handler(sock, exp_code, logfd):
+  '''Decode, receive, check and log a response sent from FTP server to client'''
   response = sock.recv(255).decode()
-  print(f'S->C: {response}', end='')
+  if logfd == '-':
+    print(f'S->C: {response}', end='')
+  elif logfd:
+    logfd.write(f'S->C: {response}')
   check_code(int(response[:3]), exp_code)
 
   if int(response[:3]) == 227:
@@ -75,7 +96,11 @@ def response_handler(sock, exp_code, logfn):
 
   return None
 
-def session_handler(sess, logfn, data, num_thrd=None, tid=None):
+def session_handler(sess, logfd, data, num_thrd=None, tid=None):
+  '''
+  Open the control and data process for a FTP transfer session;
+  enable multithreaded session if specified
+  '''
   # Control Process
   ctrl_sock = socket.socket()
   try:
@@ -84,13 +109,13 @@ def session_handler(sess, logfn, data, num_thrd=None, tid=None):
     myexit(1)
 
   # Connect -> USER -> PASS -> PASV
-  response_handler(ctrl_sock, 220, None)
-  request_handler(ctrl_sock, f'USER {sess.username}\r\n', None)
-  response_handler(ctrl_sock, 331, None)
-  request_handler(ctrl_sock, f'PASS {sess.password}\r\n', None)
-  response_handler(ctrl_sock, 230, None)
-  request_handler(ctrl_sock, f'PASV\r\n', None)
-  data_port = response_handler(ctrl_sock, 227, None)
+  response_handler(ctrl_sock, 220, logfd)
+  request_handler(ctrl_sock, f'USER {sess.username}\r\n', logfd)
+  response_handler(ctrl_sock, 331, logfd)
+  request_handler(ctrl_sock, f'PASS {sess.password}\r\n', logfd)
+  response_handler(ctrl_sock, 230, logfd)
+  request_handler(ctrl_sock, f'PASV\r\n', logfd)
+  data_port = response_handler(ctrl_sock, 227, logfd)
 
   # Data Process
   data_sock = socket.socket()
@@ -100,54 +125,66 @@ def session_handler(sess, logfn, data, num_thrd=None, tid=None):
     myexit(1)
 
   # SIZE
-  if num_thrd:
-    request_handler(ctrl_sock, f'SIZE {sess.file}\r\n', None)
-    fsize = response_handler(ctrl_sock, 213, None)
+  request_handler(ctrl_sock, f'SIZE {sess.file}\r\n', logfd)
+  fsize = response_handler(ctrl_sock, 213, logfd)
+
+  if num_thrd:  
     step = fsize // num_thrd
     startpos = tid * step
     endpos = (tid + 1) * step if tid != num_thrd - 1 else fsize
     step = endpos - startpos
 
   # Thread-only: REST -> TYPE I
-    request_handler(ctrl_sock, f'REST {startpos}\r\n', None)
-    response_handler(ctrl_sock, 350, None)
-    request_handler(ctrl_sock, f'TYPE I\r\n', None)
-    response_handler(ctrl_sock, 200, None)
+    request_handler(ctrl_sock, f'REST {startpos}\r\n', logfd)
+    response_handler(ctrl_sock, 350, logfd)
+    request_handler(ctrl_sock, f'TYPE I\r\n', logfd)
+    response_handler(ctrl_sock, 200, logfd)
 
   # RETR
-  request_handler(ctrl_sock, f'RETR {sess.file}\r\n', None)
-  response_handler(ctrl_sock, 150, None)
+  request_handler(ctrl_sock, f'RETR {sess.file}\r\n', logfd)
+  response_handler(ctrl_sock, 150, logfd)
 
   # Normal Download
   # data is a single bytearray
   if not num_thrd:
-    while True:
-      chunk = data_sock.recv(1024)
-      data.extend(chunk)
-      if len(chunk) < 1:
-        break
+    try:
+      while True:
+        chunk = data_sock.recv(1024)
+        data.extend(chunk)
+        if len(chunk) < 1:
+          break
+    except:
+      myexit(7)
 
   # Thread-only: Parallel Download
   # data is a dict containing bytearrays corresponding to each thread
   else:
-    count = 0
-    temp = bytearray()
-    while True:
-      chunk = data_sock.recv(2048)
-      temp.extend(chunk)
-      count += len(chunk)
-      if len(chunk) < 1 or count >= endpos:
-        data[tid] = temp[:step]
-        break
+    try:
+      count = 0
+      temp = bytearray()
+      while True:
+        chunk = data_sock.recv(2048)
+        temp.extend(chunk)
+        count += len(chunk)
+        if len(chunk) < 1 or count >= endpos:
+          data[tid] = temp[:step]
+          break
+    except:
+      myexit(7)
 
   ctrl_sock.close()
 
-  return data
+  return data, fsize
 
+################################################################################
 def main():
   args = parse_args()
   if args.thread and (args.file or args.hostname):
     myexit(4)
+
+  logfd = None
+  if args.log:
+    logfd = open(args.log, 'w') if args.log != '-' else '-'
 
   # Thread
   if args.thread:
@@ -164,30 +201,35 @@ def main():
     datalist = {}
     for sess, tid in zip(sessions, range(len(sessions))):
       newthread = threading.Thread(target=session_handler, \
-        args=(sess, args.log, datalist), \
+        args=(sess, logfd, datalist), \
         kwargs={'num_thrd': len(sessions), 'tid': tid})
       threads.append(newthread)
 
     for thread in threads:
       thread.start()
+      time.sleep(0.2)
 
     for thread in threads:
       thread.join()
 
     with open(sess.file, 'wb') as fout:
-      for data in datalist.values():
-        fout.write(data)
+      for tid in sorted(datalist.keys()):
+        fout.write(datalist[tid])
 
   # Normal
   elif args.file and args.hostname:
     sess = Session(args.file, args.hostname, args.port, \
       args.username, args.password)
-    data = session_handler(sess, args.log, bytearray())
+    datam, fsize = session_handler(sess, logfd, bytearray())
 
-    if data:
-      with open(sess.file, 'wb') as fout:
-        fout.write(data)
+    if not data or len(data) != fsize:
+      myexit(7)
+    with open(sess.file, 'wb') as fout:
+      fout.write(data)
 
+  # Clean up
+  if logfd and logfd != '-':
+    logfd.close()
   myexit(0)
 
 if __name__ == '__main__':
