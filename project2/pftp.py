@@ -14,7 +14,7 @@ exit_codes = {
 }
 
 serv_resps = {
-  500: 4,
+  500: 5,
   530: 2,
   550: 3,
 }
@@ -60,13 +60,13 @@ def parse_args():
   parser.add_argument('-l', '--log', type=str, help='logs all the FTP commands \
     exchanged with the server and the corresponding replies')
 
+  args = None
   try:
     args = parser.parse_args()
-  except SystemExit:
-    myexit(4)
-
-  if args.version:
-    print('pftp, Version: 0.1, Author: Ruolin Zheng')
+  except SystemExit as e:
+    if e.code != 0:
+      myexit(4)
+  if not args:
     myexit(0)
 
   return args
@@ -138,7 +138,8 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
   fsize = response_handler(ctrl_sock, 213, logfd)
 
   # Thread-only
-  if num_thrd:  
+  if num_thrd:
+    data['fsize'] = fsize
     step = fsize // num_thrd
     startpos = tid * step
     endpos = (tid + 1) * step if tid != num_thrd - 1 else fsize
@@ -184,6 +185,11 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
     except:
       myexit(7)
 
+  response_handler(ctrl_sock, 226, logfd)
+  request_handler(ctrl_sock, f'QUIT\r\n', logfd)
+  response_handler(ctrl_sock, 221, logfd)
+
+  # Clean up
   ctrl_sock.close()
 
   return data, fsize
@@ -191,9 +197,15 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
 ################################################################################
 def main():
   args = parse_args()
+
+  # Syntax error
+  if args.version:
+    print('pftp, Version: 0.1, Author: Ruolin Zheng')
+    myexit(0)
   if args.thread and (args.file or args.hostname):
     myexit(4)
 
+  # Logging
   logfd = None
   if args.log:
     logfd = open(args.log, 'w') if args.log != '-' else '-'
@@ -208,7 +220,7 @@ def main():
       myexit(7)
 
     for line in lines:
-      line = re.sub(f'ftp://', '', line.rstrip())
+      line = re.sub(r'ftp://', '', line.rstrip())
       configs = re.split(r'[:@/]', line)
       newsess = Session(configs[3], configs[2], args.port, configs[0], configs[1])
       sessions.append(newsess)
@@ -225,9 +237,13 @@ def main():
       time.sleep(0.2)
 
     for thread in threads:
-      thread.join()
+      thread.join(5)
 
+    # Obtain the file size
+    fsize = datalist.pop('fsize', None)
     if len(datalist) != len(threads):
+      myexit(7)
+    if fsize != sum([len(chunk) for chunk in datalist.values()]):
       myexit(7)
 
     try:
@@ -241,7 +257,7 @@ def main():
   elif args.file and args.hostname:
     sess = Session(args.file, args.hostname, args.port, \
       args.username, args.password)
-    datam, fsize = session_handler(sess, logfd, bytearray())
+    data, fsize = session_handler(sess, logfd, bytearray())
 
     if not data or len(data) != fsize:
       myexit(7)
