@@ -60,7 +60,11 @@ def parse_args():
   parser.add_argument('-l', '--log', type=str, help='logs all the FTP commands \
     exchanged with the server and the corresponding replies')
 
-  args = parser.parse_args()
+  try:
+    args = parser.parse_args()
+  except SystemExit:
+    myexit(4)
+
   if args.version:
     print('pftp, Version: 0.1, Author: Ruolin Zheng')
     myexit(0)
@@ -83,16 +87,21 @@ def response_handler(sock, exp_code, logfd):
     print(f'S->C: {response}', end='')
   elif logfd:
     logfd.write(f'S->C: {response}')
-  check_code(int(response[:3]), exp_code)
 
-  if int(response[:3]) == 227:
-    data_port = re.findall(r'\d+', response)[-2:]
-    data_port = int(data_port[0]) * 256 + int(data_port[1])
-    return data_port
+  # Temporary walkaround for port 22's strange ValueError 'SSH'
+  try:
+    check_code(int(response[:3]), exp_code)
 
-  if int(response[:3]) == 213:
-    fsize = int(re.split(r'\s', response)[1])
-    return fsize
+    if int(response[:3]) == 227:
+      data_port = re.findall(r'\d+', response)[-2:]
+      data_port = int(data_port[0]) * 256 + int(data_port[1])
+      return data_port
+
+    if int(response[:3]) == 213:
+      fsize = int(re.split(r'\s', response)[1])
+      return fsize
+  except ValueError:
+    pass
 
   return None
 
@@ -128,13 +137,14 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
   request_handler(ctrl_sock, f'SIZE {sess.file}\r\n', logfd)
   fsize = response_handler(ctrl_sock, 213, logfd)
 
+  # Thread-only
   if num_thrd:  
     step = fsize // num_thrd
     startpos = tid * step
     endpos = (tid + 1) * step if tid != num_thrd - 1 else fsize
     step = endpos - startpos
 
-  # Thread-only: REST -> TYPE I
+    # Thread-only: REST -> TYPE I
     request_handler(ctrl_sock, f'REST {startpos}\r\n', logfd)
     response_handler(ctrl_sock, 350, logfd)
     request_handler(ctrl_sock, f'TYPE I\r\n', logfd)
@@ -157,7 +167,7 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
       myexit(7)
 
   # Thread-only: Parallel Download
-  # data is a dict containing bytearrays corresponding to each thread
+  # data is a dict containing a bytearray for each thread
   else:
     try:
       count = 0
@@ -167,6 +177,8 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
         temp.extend(chunk)
         count += len(chunk)
         if len(chunk) < 1 or count >= endpos:
+          if len(temp) < step:
+            myexit(7)
           data[tid] = temp[:step]
           break
     except:
@@ -190,7 +202,10 @@ def main():
   if args.thread:
     sessions = []
     threads = []
-    lines = open(args.thread, 'r').readlines()
+    try:
+      lines = open(args.thread, 'r').readlines()
+    except:
+      myexit(7)
 
     for line in lines:
       line = re.sub(f'ftp://', '', line.rstrip())
@@ -212,9 +227,15 @@ def main():
     for thread in threads:
       thread.join()
 
-    with open(sess.file, 'wb') as fout:
-      for tid in sorted(datalist.keys()):
-        fout.write(datalist[tid])
+    if len(datalist) != len(threads):
+      myexit(7)
+
+    try:
+      with open(sess.file, 'wb') as fout:
+        for tid in sorted(datalist.keys()):
+          fout.write(datalist[tid])
+    except:
+      myexit(7)
 
   # Normal
   elif args.file and args.hostname:
@@ -224,12 +245,16 @@ def main():
 
     if not data or len(data) != fsize:
       myexit(7)
-    with open(sess.file, 'wb') as fout:
-      fout.write(data)
+    try:
+      with open(sess.file, 'wb') as fout:
+        fout.write(data)
+    except:
+      myexit(7)
 
   # Clean up
   if logfd and logfd != '-':
     logfd.close()
+
   myexit(0)
 
 if __name__ == '__main__':
