@@ -23,10 +23,11 @@ class Session(object):
   '''Contain the specified file, hostname, port, username, and password'''
   def __init__(self, *args):
     self.file = args[0] or None
-    self.hostname = args[1] or None
-    self.port = args[2] or 21
-    self.username = args[3] or 'anonymous'
-    self.password = args[4] or 'user@localhost.localnet'
+    self.path = args[1] or None
+    self.hostname = args[2] or None
+    self.port = args[3] or 21
+    self.username = args[4] or 'anonymous'
+    self.password = args[5] or 'user@localhost.localnet'
 
 def myexit(errno):
   '''Print error code and message to stderr and exit with error code'''
@@ -120,7 +121,7 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
   except:
     myexit(1)
 
-  # Connect -> USER -> PASS -> PASV
+  # Connect -> USER -> PASS -> PASV -> ?CWD
   response_handler(ctrl_sock, 220, logfd)
   request_handler(ctrl_sock, f'USER {sess.username}\r\n', logfd)
   response_handler(ctrl_sock, 331, logfd)
@@ -128,6 +129,9 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
   response_handler(ctrl_sock, 230, logfd)
   request_handler(ctrl_sock, f'PASV\r\n', logfd)
   data_port = response_handler(ctrl_sock, 227, logfd)
+  if sess.path:
+    request_handler(ctrl_sock, f'CWD {sess.path}\r\n', logfd)
+    response_handler(ctrl_sock, 250, logfd)
 
   # Data Process
   data_sock = socket.socket()
@@ -221,20 +225,26 @@ def main():
     except:
       myexit(7)
 
-    username, password, hostname, file = None, None, None, None
+    username, password, hostname, path, file = None, None, None, None, None
     for line in lines:
       line = re.sub(r'ftp://', '', line.rstrip())
-      url = re.split(r'@', line)
-      if len(url) == 2:
-        username, password = re.split(r':', url[0])
-        url = url[1]
-      else:
-        url = url[0]
-      path = re.split(r'/', url)
-      file = path[-1]
-      hostname = '/'.join(path[:-1])
+      try:
+        url = re.split(r'@', line)
+        if len(url) == 2:
+          username, password = re.split(r':', url[0])
+          url = url[1]
+        else:
+          url = url[0]
+        path = re.split(r'/', url)
+        hostname = path[0]
+        file = path[-1]
+        path = '/'.join(path[1:-1])
+        if path == '':
+          path = None
+      except:
+        myexit(4)
 
-      newsess = Session(file, hostname, args.port, username, password)
+      newsess = Session(file, path, hostname, args.port, username, password)
       sessions.append(newsess)
 
     datalist = {}
@@ -250,7 +260,7 @@ def main():
       time.sleep(0.2)
 
     for thread in threads:
-      thread.join(timeout=5)
+      thread.join(timeout=15)
 
     # Obtain the file size
     fsize = datalist.pop('fsize', None)
@@ -266,10 +276,22 @@ def main():
     except:
       myexit(7)
 
+    myexit(0)
+
   # Normal
   elif args.file and args.hostname:
+    path = None
     args.hostname = re.sub(r'ftp://', '', args.hostname)
-    sess = Session(args.file, args.hostname, args.port, \
+    path = re.split(r'/', args.hostname)
+    if len(path) > 1:
+      args.hostname = path[0]
+      path = '/'.join(path[1:])
+    else:
+      path = None
+    if path == '':
+      path = None
+
+    sess = Session(args.file, path, args.hostname, args.port, \
       args.username, args.password)
     data, fsize = session_handler(sess, logfd, bytearray())
 
@@ -281,11 +303,9 @@ def main():
     except:
       myexit(7)
 
-  # Clean up
-  if logfd and logfd != '-':
-    logfd.close()
+    myexit(0)
 
-  myexit(0)
+  myexit(4)
 
 if __name__ == '__main__':
   main()
