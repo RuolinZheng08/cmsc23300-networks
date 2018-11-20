@@ -34,8 +34,11 @@ def myexit(errno):
     file=sys.stderr)
   sys.exit(errno)
 
-def check_code(result, expected):
+def check_code(result, expected, extra=None):
   '''Check the response code from the FTP server; exit if mismatch'''
+  # Temporary walkaround for '550 Permission Denied'
+  if 'Permission Denied' in extra:
+    myexit(6)
   if not result == expected:
     myexit(serv_resps.get(result, 7))
   return None
@@ -90,7 +93,7 @@ def response_handler(sock, exp_code, logfd):
 
   # Temporary walkaround for port 22's strange ValueError 'SSH'
   try:
-    check_code(int(response[:3]), exp_code)
+    check_code(int(response[:3]), exp_code, response)
 
     if int(response[:3]) == 227:
       data_port = re.findall(r'\d+', response)[-2:]
@@ -212,17 +215,26 @@ def main():
 
   # Thread
   if args.thread:
-    sessions = []
-    threads = []
+    sessions, threads = [], []
     try:
       lines = open(args.thread, 'r').readlines()
     except:
       myexit(7)
 
+    username, password, hostname, file = None, None, None, None
     for line in lines:
       line = re.sub(r'ftp://', '', line.rstrip())
-      configs = re.split(r'[:@/]', line)
-      newsess = Session(configs[3], configs[2], args.port, configs[0], configs[1])
+      url = re.split(r'@', line)
+      if len(url) == 2:
+        username, password = re.split(r':', url[0])
+        url = url[1]
+      else:
+        url = url[0]
+      path = re.split(r'/', url)
+      file = path[-1]
+      hostname = '/'.join(path[:-1])
+
+      newsess = Session(file, hostname, args.port, username, password)
       sessions.append(newsess)
 
     datalist = {}
@@ -230,6 +242,7 @@ def main():
       newthread = threading.Thread(target=session_handler, \
         args=(sess, logfd, datalist), \
         kwargs={'num_thrd': len(sessions), 'tid': tid})
+      newthread.daemon = True
       threads.append(newthread)
 
     for thread in threads:
@@ -237,7 +250,7 @@ def main():
       time.sleep(0.2)
 
     for thread in threads:
-      thread.join(5)
+      thread.join(timeout=5)
 
     # Obtain the file size
     fsize = datalist.pop('fsize', None)
@@ -255,6 +268,7 @@ def main():
 
   # Normal
   elif args.file and args.hostname:
+    args.hostname = re.sub(r'ftp://', '', args.hostname)
     sess = Session(args.file, args.hostname, args.port, \
       args.username, args.password)
     data, fsize = session_handler(sess, logfd, bytearray())
