@@ -1,11 +1,12 @@
 Ruolin Zheng
 ruolinzheng
-CMSC 233 Project 1
+CMSC 233 Project 1 - netcat
 
 To Compile:
 `make`
 
-usage: ./snc [-l] [-u] [hostname] port
+Usage:
+./snc [-l] [-u] [hostname] port
 
 Implementation:
 According to the flags given, the program will act either as a server or
@@ -27,7 +28,8 @@ In client, when CTRL+D is pressed and stdin is empty, the client exits
 immediately and simultaneously shuts down the server. Does not handle the case
 in which stdin is non-empty.
 
-Functions: see snc.c comments
+Functions:
+See snc.c function comments.
 
 Project Requirements / Error Handling:
 - Given invalid options: print input error help message and exit
