@@ -4,23 +4,26 @@ import argparse, socket, re, os, sys, shutil, threading
 from html.parser import HTMLParser
 
 class MyHTMLParser(HTMLParser):
-  '''Retrieve all outlinks wrapped in <a href> tags from a HTML file'''
   def __init__(self, hostname):
     HTMLParser.__init__(self)
     self.hostname = hostname
-    self.outlinks = []
+    self.outlinks = set()
+
   def handle_starttag(self, tag, attrs):
-    if tag.lower() == 'a':
+    '''Retrieve all outlinks wrapped in <a href> tags from a HTML file'''
+    tag = tag.lower()
+    if tag == 'a' or tag == 'img': 
       for key, val in attrs:
-        if key == 'href':
+        key = key.lower()
+        if (tag == 'a' and key == 'href') or (tag == 'img' and key == 'src'):
           val = re.sub(r'\./|https?://|#', '', val)
-          if val != '' and not re.search(r'\.com|\.edu|\.org', val):
-            self.outlinks.append(val)
+          if val != '' and not re.search(r'\.com|\.edu|\.org|\.gov', val):
+            self.outlinks.add(val)
 
 def parse_args():
   '''
   Handle command line arguments
-  ./mcrawl -h http://eychtipi.cs.uchicago.edu -p 80 -f testdir
+  ./mcrawl.py -h eychtipi.cs.uchicago.edu -p 80 -f testdir
   '''
   parser = argparse.ArgumentParser(add_help=False)
   parser.add_argument('-n', '--numthreads', type=int)
@@ -36,39 +39,50 @@ def parse_args():
   return args
 
 def crawl_page(hostname, port, page):
-  '''Fetch a single page'''
+  '''Fetch a single page and write to local'''
   print('Fetching page: {}'.format(page))
   mysock = socket.socket()
   mysock.connect((hostname, port))
   mysock.sendall('GET /{}\r\n'.format(page).encode())
-  data = ''
+  data = bytearray()
 
   while True:
-    chunk = mysock.recv(1024).decode()
-    data += chunk
+    chunk = mysock.recv(1024)
+    data.extend(chunk)
     if len(chunk) < 1:
       break
 
-  fname = re.sub('/', '_', page)
-  with open(fname, 'w') as f:
-    f.write(data)
+  if page == '/':
+    fname = 'index.html'
+  else:
+    if page.endswith('/'):
+      page = page[:-1]
+    fname = re.sub(r'/', '_', page)
 
-  htmlparser = MyHTMLParser(hostname)
-  htmlparser.feed(data)
-  return htmlparser.outlinks
+  if re.search(r'\.png|\.jpg|\.gif|\.pdf', fname):
+    with open(fname, 'wb') as f:
+      f.write(data)
+    return None
+  else:
+    data = data.decode()
+    with open(fname, 'w') as f:
+      f.write(data)
+    htmlparser = MyHTMLParser(hostname)
+    htmlparser.feed(data)
+    return htmlparser.outlinks
 
-def crawl_web(hostname, port, seed):
-  '''Recursively fetch all pages from a given seed'''
-  to_crawl = [seed]
+def crawl_web(hostname, port, to_crawl):
+  '''Recursively fetch all pages given a single-seeded queue'''
   crawled = []
 
   while to_crawl:
     page = to_crawl.pop()
     outlinks = crawl_page(hostname, port, page)
-    for link in outlinks:
-      if not link in crawled:
-        to_crawl.append(link)
     crawled.append(page)
+    if outlinks is not None:
+      for link in outlinks:
+        if not link in crawled:
+          to_crawl.add(link)
 
 def main():
   args = parse_args()
@@ -78,7 +92,7 @@ def main():
   os.mkdir(args.dirname)
   os.chdir(args.dirname)
 
-  crawl_web(args.hostname, args.port, 'index.html')
+  crawl_web(args.hostname, args.port, set(['/']))
 
 if __name__ == '__main__':
   main()
