@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse, socket, re, os, sys, shutil, threading
+import argparse, socket, re, os, sys, threading
 from html.parser import HTMLParser
 
 class MyHTMLParser(HTMLParser):
@@ -16,7 +16,7 @@ class MyHTMLParser(HTMLParser):
       for key, val in attrs:
         key = key.lower()
         if (tag == 'a' and key == 'href') or (tag == 'img' and key == 'src'):
-          val = re.sub(r'\./|https?://|#', '', val)
+          val = re.sub(r'\./|https?://|#.*', '', val)
           if val != '' and not re.search(r'\.com|\.edu|\.org|\.gov', val):
             self.outlinks.add(val)
 
@@ -40,7 +40,7 @@ def parse_args():
 
 def crawl_page(hostname, port, page):
   '''Fetch a single page and write to local'''
-  print('Fetching page: {}'.format(page))
+  print('Fetching page: {}...'.format(page))
   mysock = socket.socket()
   mysock.connect((hostname, port))
   mysock.sendall('GET /{}\r\n'.format(page).encode())
@@ -51,6 +51,8 @@ def crawl_page(hostname, port, page):
     data.extend(chunk)
     if len(chunk) < 1:
       break
+
+  mysock.close()
 
   if page == '/':
     fname = 'index.html'
@@ -71,10 +73,8 @@ def crawl_page(hostname, port, page):
     htmlparser.feed(data)
     return htmlparser.outlinks
 
-def crawl_web(hostname, port, to_crawl):
+def crawl_web(hostname, port, to_crawl, crawled):
   '''Recursively fetch all pages given a single-seeded queue'''
-  crawled = []
-
   while to_crawl:
     page = to_crawl.pop()
     outlinks = crawl_page(hostname, port, page)
@@ -87,12 +87,23 @@ def crawl_web(hostname, port, to_crawl):
 def main():
   args = parse_args()
   
-  if os.path.exists(args.dirname):
-    shutil.rmtree(args.dirname)
-  os.mkdir(args.dirname)
+  if not os.path.exists(args.dirname):
+    os.mkdir(args.dirname)
   os.chdir(args.dirname)
 
-  crawl_web(args.hostname, args.port, set(['/']))
+  threads = []
+  to_crawl = set(['/'])
+  crawled = []
+  for i in range(args.numthreads):
+    thread = threading.Thread(target=crawl_web, \
+      args=(args.hostname, args.port, to_crawl, crawled))
+    threads.append(thread)
+
+  for thread in threads:
+    thread.start()
+
+  for thread in threads:
+    thread.join()
 
 if __name__ == '__main__':
   main()
