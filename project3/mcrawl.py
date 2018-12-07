@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import argparse, socket, re, os, sys, threading
+import argparse, socket, re, os, sys, threading, queue
 from html.parser import HTMLParser
 
 class MyHTMLParser(HTMLParser):
@@ -19,6 +19,12 @@ class MyHTMLParser(HTMLParser):
           val = re.sub(r'\./|https?://|#.*', '', val)
           if val != '' and not re.search(r'\.com|\.edu|\.org|\.gov', val):
             self.outlinks.add(val)
+
+  def handle_comment(self, data):
+    '''Retrieve data inside a comment and feed to another HTML parser'''
+    innerparser = MyHTMLParser(self.hostname)
+    innerparser.feed(data)
+    self.outlinks.union(innerparser.outlinks)
 
 def parse_args():
   '''
@@ -61,7 +67,7 @@ def crawl_page(hostname, port, page):
       page = page[:-1]
     fname = re.sub(r'/', '_', page)
 
-  if re.search(r'\.png|\.jpg|\.gif|\.pdf', fname):
+  if not re.search(r'\.html?', fname):
     with open(fname, 'wb') as f:
       f.write(data)
     return None
@@ -75,14 +81,17 @@ def crawl_page(hostname, port, page):
 
 def crawl_web(hostname, port, to_crawl, crawled):
   '''Recursively fetch all pages given a single-seeded queue'''
-  while to_crawl:
-    page = to_crawl.pop()
+  while True:
+    page = to_crawl.get()
+    if page is None:
+      break
     outlinks = crawl_page(hostname, port, page)
     crawled.append(page)
     if outlinks is not None:
       for link in outlinks:
         if not link in crawled:
-          to_crawl.add(link)
+          to_crawl.put(link)
+    to_crawl.task_done()
 
 def main():
   args = parse_args()
@@ -90,20 +99,26 @@ def main():
   if not os.path.exists(args.dirname):
     os.mkdir(args.dirname)
   os.chdir(args.dirname)
-
-  threads = []
-  to_crawl = set(['/'])
+  
+  to_crawl = queue.Queue()
+  to_crawl.put('/')
   crawled = []
+  threads = []
   for i in range(args.numthreads):
-    thread = threading.Thread(target=crawl_web, \
+    t = threading.Thread(target=crawl_web, \
       args=(args.hostname, args.port, to_crawl, crawled))
-    threads.append(thread)
+    threads.append(t)
 
-  for thread in threads:
-    thread.start()
+  for t in threads:
+    t.start()
 
-  for thread in threads:
-    thread.join()
+  to_crawl.join()
+
+  for i in range(args.numthreads):
+    to_crawl.put(None)
+
+  for t in threads:
+    t.join()
 
 if __name__ == '__main__':
   main()
