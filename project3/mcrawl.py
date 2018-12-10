@@ -61,12 +61,9 @@ def crawl_page(hostname, port, page):
 
   mysock.close()
 
-  if page == '/':
-    fname = 'index.html'
-  else:
-    if page.endswith('/'):
-      page = page[:-1]
-    fname = re.sub(r'/', '_', page)
+  if page.endswith('/'):
+    page = page[:-1]
+  fname = re.sub(r'/', '_', page)
 
   if not re.search(r'\.html?', fname):
     with open(fname, 'wb') as f:
@@ -90,7 +87,7 @@ def crawl_web(hostname, port, to_crawl, crawled):
     crawled.append(page)
     if outlinks is not None:
       for link in outlinks:
-        if not link in crawled:
+        if not link in crawled and not link in to_crawl.queue:
           to_crawl.put(link)
     to_crawl.task_done()
 
@@ -102,7 +99,7 @@ def main():
   os.chdir(args.dirname)
   
   to_crawl = queue.Queue()
-  to_crawl.put('/')
+  to_crawl.put('index.html')
   crawled = []
   threads = []
   for i in range(args.numthreads):
