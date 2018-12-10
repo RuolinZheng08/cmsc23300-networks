@@ -10,6 +10,7 @@ import queue
 from html.parser import HTMLParser
 
 class MyHTMLParser(HTMLParser):
+  '''A HTML parser that keeps track of outlinks including those in comments'''
   def __init__(self, hostname):
     HTMLParser.__init__(self)
     self.hostname = hostname
@@ -24,13 +25,29 @@ class MyHTMLParser(HTMLParser):
         if key in ['href', 'src']:
           val = re.sub(r'\./|https?://|#.*', '', val)
           if val != '' and not re.search(r'\.com|\.edu|\.org|\.gov', val):
-            self.outlinks.add(val)
+            if val.endswith('/'):
+              val = val[:-1]
+            if val.startswith('.'):
+              val = val[1:]
+            if val == 'dynamics':
+              val = 'dynamics.html'
+            if val is not '':
+              self.outlinks.add(val)
 
   def handle_comment(self, data):
     '''Retrieve data inside a comment and feed to another HTML parser'''
     innerparser = MyHTMLParser(self.hostname)
     innerparser.feed(data)
     self.outlinks.update(innerparser.outlinks)
+
+class UniqueQueue(queue.Queue):
+  '''A Queue that contains only unique items'''
+  def _init(self, maxsize):
+      self.queue = set()
+  def _put(self, item):
+      self.queue.add(item)
+  def _get(self):
+      return self.queue.pop()
 
 def parse_args():
   '''
@@ -83,12 +100,6 @@ def crawl_page(hostname, port, cookies, page):
 
   mysock.close()
 
-  if page == '/':
-    page = 'index.html'
-  if page.endswith('/'):
-    page = page[:-1]
-  if page == 'dynamics':
-    page = 'dynamics.html'
   fname = re.sub(r'/', '_', page)
 
   if not re.search(r'\.html?', fname):
@@ -113,7 +124,7 @@ def crawl_web(hostname, port, cookies, to_crawl, crawled):
       crawled.append(page)
       if outlinks is not None:
         for link in outlinks:
-          if not link in crawled and not link in to_crawl.queue:
+          if not link in crawled:
             to_crawl.put(link)
       to_crawl.task_done()
     except:
@@ -126,7 +137,7 @@ def main():
     os.mkdir(args.dirname)
   os.chdir(args.dirname)
   
-  to_crawl = queue.Queue()
+  to_crawl = UniqueQueue()
   to_crawl.put('index.html')
   crawled = []
   threads = []
