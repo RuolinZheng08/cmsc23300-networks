@@ -12,10 +12,10 @@ class MyHTMLParser(HTMLParser):
   def handle_starttag(self, tag, attrs):
     '''Retrieve all outlinks wrapped in <a href> tags from a HTML file'''
     tag = tag.lower()
-    if tag == 'a' or tag == 'img': 
+    if tag in ['a', 'img', 'link', 'script']: 
       for key, val in attrs:
         key = key.lower()
-        if (tag == 'a' and key == 'href') or (tag == 'img' and key == 'src'):
+        if key in ['href', 'src']:
           val = re.sub(r'\./|https?://|#.*', '', val)
           if val != '' and not re.search(r'\.com|\.edu|\.org|\.gov', val):
             self.outlinks.add(val)
@@ -24,7 +24,7 @@ class MyHTMLParser(HTMLParser):
     '''Retrieve data inside a comment and feed to another HTML parser'''
     innerparser = MyHTMLParser(self.hostname)
     innerparser.feed(data)
-    self.outlinks.union(innerparser.outlinks)
+    self.outlinks.update(innerparser.outlinks)
 
 def parse_args():
   '''
@@ -49,7 +49,8 @@ def crawl_page(hostname, port, page):
   print('Fetching page: {}...'.format(page))
   mysock = socket.socket()
   mysock.connect((hostname, port))
-  mysock.sendall('GET /{}\r\n'.format(page).encode())
+  mysock.sendall('GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n'.format(page, \
+    hostname).encode())
   data = bytearray()
 
   while True:
@@ -73,7 +74,7 @@ def crawl_page(hostname, port, page):
     return None
   else:
     data = data.decode()
-    with open(fname, 'w') as f:
+    with open(fname, 'wt') as f:
       f.write(data)
     htmlparser = MyHTMLParser(hostname)
     htmlparser.feed(data)
