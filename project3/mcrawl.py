@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 
-import argparse, socket, re, os, sys, threading, queue
+import argparse
+import socket
+import re
+import os
+import sys
+import threading
+import queue
 from html.parser import HTMLParser
 
 class MyHTMLParser(HTMLParser):
@@ -44,52 +50,74 @@ def parse_args():
     args.numthreads = 1
   return args
 
-def crawl_page(hostname, port, page):
-  '''Fetch a single page and write to local'''
-  print('Fetching page: {}...'.format(page))
+def crawl_page(hostname, port, cookies, page):
+  '''Fetch a single page and write to local''' 
   mysock = socket.socket()
   mysock.connect((hostname, port))
-  mysock.sendall('GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n'.format(page, \
-    hostname).encode())
-  data = bytearray()
+
+  worker = threading.get_ident()
+  print('Worker {} is fetching {}...'.format(worker, page))
+
+  data = ''
+
+  # Get cookie if the worker is not yet associated with a cookie
+  if not worker in cookies:
+    request = 'GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n'.format(page, hostname)
+  else:
+    request = ''.join(['GET /{} HTTP/1.1\r\n',
+  'Host: {}\r\n', 'Cookie:{} \r\n\r\n']).format(page, hostname, cookies[worker])
+
+  mysock.send(request.encode())
+  
+  header, content = mysock.recv(330).decode().split('\r\n\r\n')
+  cookie = re.findall(r'Set-Cookie: (.+?);', header)[0]
+  if not cookie in cookies.values():
+    cookies[worker] = cookie
+  data += content
 
   while True:
-    chunk = mysock.recv(1024)
-    data.extend(chunk)
+    chunk = mysock.recv(1024).decode()
+    data += chunk
     if len(chunk) < 1:
       break
 
   mysock.close()
 
+  if page == '/':
+    page = 'index.html'
   if page.endswith('/'):
     page = page[:-1]
+  if page == 'dynamics':
+    page = 'dynamics.html'
   fname = re.sub(r'/', '_', page)
 
   if not re.search(r'\.html?', fname):
     with open(fname, 'wb') as f:
-      f.write(data)
+      f.write(data.encode())
     return None
   else:
-    data = data.decode()
     with open(fname, 'wt') as f:
       f.write(data)
     htmlparser = MyHTMLParser(hostname)
     htmlparser.feed(data)
     return htmlparser.outlinks
 
-def crawl_web(hostname, port, to_crawl, crawled):
-  '''Recursively fetch all pages given a single-seeded queue'''
+def crawl_web(hostname, port, cookies, to_crawl, crawled):
+  '''Fetch all pages given a single-seeded queue'''
   while True:
-    page = to_crawl.get()
-    if page is None:
-      break
-    outlinks = crawl_page(hostname, port, page)
-    crawled.append(page)
-    if outlinks is not None:
-      for link in outlinks:
-        if not link in crawled and not link in to_crawl.queue:
-          to_crawl.put(link)
-    to_crawl.task_done()
+    try:
+      page = to_crawl.get()
+      if page is None:
+        break
+      outlinks = crawl_page(hostname, port, cookies, page)
+      crawled.append(page)
+      if outlinks is not None:
+        for link in outlinks:
+          if not link in crawled and not link in to_crawl.queue:
+            to_crawl.put(link)
+      to_crawl.task_done()
+    except:
+      pass
 
 def main():
   args = parse_args()
@@ -102,9 +130,10 @@ def main():
   to_crawl.put('index.html')
   crawled = []
   threads = []
+  cookies = {}
   for i in range(args.numthreads):
-    t = threading.Thread(target=crawl_web, \
-      args=(args.hostname, args.port, to_crawl, crawled))
+    t = threading.Thread(target=crawl_web,
+      args=(args.hostname, args.port, cookies, to_crawl, crawled))
     threads.append(t)
 
   for t in threads:
@@ -117,6 +146,8 @@ def main():
 
   for t in threads:
     t.join()
+
+  print(len(cookies))
 
 if __name__ == '__main__':
   main()
