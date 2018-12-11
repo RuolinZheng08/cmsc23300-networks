@@ -7,6 +7,7 @@ import os
 import sys
 import threading
 import queue
+import time
 from html.parser import HTMLParser
 
 class MyHTMLParser(HTMLParser):
@@ -52,7 +53,7 @@ class UniqueQueue(queue.Queue):
 def parse_args():
   '''
   Handle command line arguments
-  ./mcrawl.py -h eychtipi.cs.uchicago.edu -p 80 -f testdir
+  ./mcrawl.py -h eychtipi.cs.uchicago.edu -p 80 -f testdir -n 5
   '''
   parser = argparse.ArgumentParser(add_help=False)
   parser.add_argument('-n', '--numthreads', type=int)
@@ -75,38 +76,49 @@ def crawl_page(hostname, port, cookies, page):
   worker = threading.get_ident()
   print('Worker {} is fetching {}...'.format(worker, page))
 
-  data = ''
-
   # Get cookie if the worker is not yet associated with a cookie
   if not worker in cookies:
-    request = 'GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n'.format(page, hostname)
+    request = 'GET /{} HTTP/1.0\r\nHost: {}\r\n\r\n'.format(page, hostname)
   else:
-    request = ''.join(['GET /{} HTTP/1.1\r\n',
+    request = ''.join(['GET /{} HTTP/1.0\r\n',
   'Host: {}\r\n', 'Cookie:{} \r\n\r\n']).format(page, hostname, cookies[worker])
 
   mysock.send(request.encode())
   
-  header, content = mysock.recv(330).decode().split('\r\n\r\n')
+  header, content = mysock.recv(330).split(b'\r\n\r\n')
+  header = header.decode()
+  status = int(re.findall(r'HTTP/\S+ (\d+)', header)[0])
   cookie = re.findall(r'Set-Cookie: (.+?);', header)[0]
   if not cookie in cookies.values():
     cookies[worker] = cookie
-  data += content
+  if status != 200:
+    if status == 404:
+      return None
+    elif status == 402:
+      print('Worker {} encounters 402 when fetching {}...'.format(worker, page))
+      return -1
+
+  data = bytearray()
+  data.extend(content)
 
   while True:
-    chunk = mysock.recv(1024).decode()
-    data += chunk
+    chunk = mysock.recv(1024)
+    data.extend(chunk)
     if len(chunk) < 1:
       break
 
   mysock.close()
 
+  print('Worker {} has fetched {}...'.format(worker, page))
+
   fname = re.sub(r'/', '_', page)
 
   if not re.search(r'\.html?', fname):
     with open(fname, 'wb') as f:
-      f.write(data.encode())
+      f.write(data)
     return None
   else:
+    data = data.decode()
     with open(fname, 'wt') as f:
       f.write(data)
     htmlparser = MyHTMLParser(hostname)
@@ -123,12 +135,18 @@ def crawl_web(hostname, port, cookies, to_crawl, crawled):
       outlinks = crawl_page(hostname, port, cookies, page)
       crawled.append(page)
       if outlinks is not None:
-        for link in outlinks:
-          if not link in crawled:
-            to_crawl.put(link)
+        if outlinks == -1:  # Status 402, put page back into queue
+          crawled.pop()
+          time.sleep(5)
+          to_crawl.put(page)
+          continue
+        else:
+          for link in outlinks:
+            if not link in crawled:
+              to_crawl.put(link)
       to_crawl.task_done()
     except:
-      pass
+      print(sys.exc_info(), file=sys.stderr)
 
 def main():
   args = parse_args()
@@ -146,6 +164,7 @@ def main():
     t = threading.Thread(target=crawl_web,
       args=(args.hostname, args.port, cookies, to_crawl, crawled))
     threads.append(t)
+    t.daemon = True
 
   for t in threads:
     t.start()
@@ -156,7 +175,7 @@ def main():
     to_crawl.put(None)
 
   for t in threads:
-    t.join()
+    t.join(timeout=300)
 
   print(len(cookies))
 
