@@ -119,7 +119,7 @@ def crawl_page(hostname, port, cookies, page):
     return None
   else:
     data = data.decode('utf-8')
-    with open(fname, 'wt') as f:
+    with codecs.open(fname, 'w', encoding='utf8') as f:
       f.write(data)
     htmlparser = MyHTMLParser()
     htmlparser.feed(data)
