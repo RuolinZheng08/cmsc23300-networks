@@ -14,9 +14,8 @@ from html.parser import HTMLParser
 
 class MyHTMLParser(HTMLParser):
   '''A HTML parser that keeps track of outlinks including those in comments'''
-  def __init__(self, hostname):
+  def __init__(self):
     HTMLParser.__init__(self)
-    self.hostname = hostname
     self.outlinks = set()
 
   def handle_starttag(self, tag, attrs):
@@ -26,18 +25,16 @@ class MyHTMLParser(HTMLParser):
       for key, val in attrs:
         key = key.lower()
         if key in ['href', 'src']:
-          val = re.sub(r'\./|https?://|#.*', '', val)
+          val = re.sub(r'^\.?/|https?://|#.*', '', val)
           if val != '' and not re.search(r'\.com|\.edu|\.org|\.gov', val):
             if val.endswith('/'):
-              val = val[:-1]
-            if val.startswith('.'):
-              val = val[1:]
+              val = val + 'index.html'
             if val is not '':
               self.outlinks.add(val)
 
   def handle_comment(self, data):
     '''Retrieve data inside a comment and feed to another HTML parser'''
-    innerparser = MyHTMLParser(self.hostname)
+    innerparser = MyHTMLParser()
     innerparser.feed(data)
     self.outlinks.update(innerparser.outlinks)
 
@@ -65,7 +62,7 @@ def crawl_page(hostname, port, lock, page):
   mysock.connect((hostname, port))
 
   worker = threading.get_ident()
-  print('Worker {} is fetching {}...'.format(worker, page))
+  # print('Worker {} is fetching {}...'.format(worker, page))
 
   # Get cookie on first attempt or a fresh one after 402
   global cookie
@@ -88,17 +85,18 @@ def crawl_page(hostname, port, lock, page):
       status = int(temp[0])
       if status != 200:
         if status == 404:
-          print('Worker {} encounters 404 when fetching {}'.format(worker, page))
+          # print('Worker {} encounters 404 when fetching {}'.format(worker, page))
           return None
         elif status == 402:
-          print('Worker {} encounters 402 when fetching {}...'
-            .format(worker, page))
+          # print('Worker {} encounters 402 when fetching {}...'
+          #   .format(worker, page))
           if cookie:
             cookie = None  # Reset cookie upon 402
           return -1
         elif status == 500:
           print('Internal Server Error')
           sys.exit(1)
+
     if not cookie:
       temp = re.findall(r'Set-Cookie: (.+?);', header)
       if temp:
@@ -127,7 +125,7 @@ def crawl_page(hostname, port, lock, page):
     data = data.decode()
     with open(fname, 'wt') as f:
       f.write(data)
-    htmlparser = MyHTMLParser(hostname)
+    htmlparser = MyHTMLParser()
     htmlparser.feed(data)
     return htmlparser.outlinks
 
@@ -145,8 +143,11 @@ def crawl_web(hostname, port, lock, to_crawl, crawled):
         crawled.pop()
         to_crawl.put(page)
       else:
+        dirname = re.findall(r'^(.+/).*', page)
         for link in outlinks:
           if not link in crawled and not link in to_crawl.queue:
+            if dirname:
+              link = dirname[0] + link
             to_crawl.put(link)
     to_crawl.task_done()
 
@@ -182,6 +183,7 @@ def main():
   for t in threads:
     t.join(timeout=15)
 
+  print('Finished.')
   sys.exit(0)
 
 if __name__ == '__main__':
