@@ -75,7 +75,7 @@ def crawl_page(hostname, port, cookies, page):
   
   # Check status code and cookie information in header
   header, content = mysock.recv(330).split(b'\r\n\r\n')
-  header = header.decode()
+  header = header.decode('utf-8')
 
   temp = re.findall(r'HTTP/\S+ (\d+)', header)
   if temp:
@@ -118,7 +118,7 @@ def crawl_page(hostname, port, cookies, page):
       f.write(data)
     return None
   else:
-    data = data.decode()
+    data = data.decode('utf-8')
     with open(fname, 'wt') as f:
       f.write(data)
     htmlparser = MyHTMLParser()
