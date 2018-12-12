@@ -85,10 +85,11 @@ def crawl_page(hostname, port, cookies, page):
     status = int(temp[0])
     if status != 200:
       if status == 404:
-        print('Worker {} fails to access {}'.format(worker, page))
+        print('Worker {} encounters 404 when fetching {}'.format(worker, page))
         return None
       elif status == 402:
-        print('Worker {} encounters 402 when fetching {}...'.format(worker, page))
+        print('Worker {} encounters 402 when fetching {}...'
+          .format(worker, page))
         cookies.pop(worker, None)  # Reset cookie upon 402
         return -1
       elif status == 500:
@@ -141,7 +142,7 @@ def crawl_web(hostname, port, cookies, to_crawl, crawled):
         to_crawl.put(page)
       else:
         for link in outlinks:
-          if not link in crawled:
+          if not link in crawled and not link in to_crawl.queue:
             to_crawl.put(link)
     to_crawl.task_done()
 
@@ -172,7 +173,7 @@ def main():
     to_crawl.put(None)
 
   for t in threads:
-    t.join()
+    t.join(timeout=15)
 
 if __name__ == '__main__':
   main()

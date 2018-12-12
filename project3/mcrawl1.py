@@ -59,7 +59,7 @@ def parse_args():
     args.numthreads = 1
   return args
 
-def crawl_page(hostname, port, cookie, page):
+def crawl_page(hostname, port, lock, page):
   '''Fetch a single page and write to local''' 
   mysock = socket.socket()
   mysock.connect((hostname, port))
@@ -68,11 +68,14 @@ def crawl_page(hostname, port, cookie, page):
   print('Worker {} is fetching {}...'.format(worker, page))
 
   # Get cookie on first attempt or a fresh one after 402
+  global cookie
+
+  lock.acquire()
   if not cookie:
     request = 'GET /{} HTTP/1.0\r\nHost: {}\r\n\r\n'.format(page, hostname)
   else:
     request = ''.join(['GET /{} HTTP/1.0\r\n',
-  'Host: {}\r\n', 'Cookie:{} \r\n\r\n']).format(page, hostname, cookie[0])
+  'Host: {}\r\n', 'Cookie:{} \r\n\r\n']).format(page, hostname, cookie)
 
   mysock.send(request.encode())
   
@@ -85,12 +88,13 @@ def crawl_page(hostname, port, cookie, page):
     status = int(temp[0])
     if status != 200:
       if status == 404:
-        print('Worker {} fails to access {}'.format(worker, page))
+        print('Worker {} encounters 404 when fetching {}'.format(worker, page))
         return None
       elif status == 402:
-        print('Worker {} encounters 402 when fetching {}...'.format(worker, page))
+        print('Worker {} encounters 402 when fetching {}...'
+          .format(worker, page))
         if cookie:
-          cookie.pop()  # Reset cookie upon 402
+          cookie = None  # Reset cookie upon 402
         return -1
       elif status == 500:
         print('Internal Server Error')
@@ -98,7 +102,8 @@ def crawl_page(hostname, port, cookie, page):
   if not cookie:
     temp = re.findall(r'Set-Cookie: (.+?);', header)
     if temp:
-      cookie.append(temp[0])
+      cookie = temp[0]
+  lock.release()
   
   data = bytearray()
   data.extend(content)
@@ -127,13 +132,13 @@ def crawl_page(hostname, port, cookie, page):
     htmlparser.feed(data)
     return htmlparser.outlinks
 
-def crawl_web(hostname, port, cookie, to_crawl, crawled):
+def crawl_web(hostname, port, lock, to_crawl, crawled):
   '''Fetch all pages given a single-seeded queue'''
   while True:
     page = to_crawl.get()
     if page is None:
       break
-    outlinks = crawl_page(hostname, port, cookie, page)
+    outlinks = crawl_page(hostname, port, lock, page)
     crawled.append(page)
     if outlinks is not None:
       if outlinks == -1:  # Status 402, put page back into queue
@@ -142,7 +147,7 @@ def crawl_web(hostname, port, cookie, to_crawl, crawled):
         to_crawl.put(page)
       else:
         for link in outlinks:
-          if not link in crawled:
+          if not link in crawled and not link in to_crawl.queue:
             to_crawl.put(link)
     to_crawl.task_done()
 
@@ -157,10 +162,13 @@ def main():
   to_crawl.put('index.html')
   crawled = []
   threads = []
-  cookie = []
+  global cookie
+  cookie = None
+  lock = threading.RLock()
+
   for i in range(args.numthreads):
     t = threading.Thread(target=crawl_web,
-      args=(args.hostname, args.port, cookie, to_crawl, crawled))
+      args=(args.hostname, args.port, lock, to_crawl, crawled))
     t.daemon = True
     threads.append(t)
 
@@ -173,7 +181,7 @@ def main():
     to_crawl.put(None)
 
   for t in threads:
-    t.join()
+    t.join(timeout=15)
 
 if __name__ == '__main__':
   main()
