@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Submission for Part I & II
+# Submission for Part III
 
 import argparse
 import socket
@@ -44,7 +44,7 @@ class MyHTMLParser(HTMLParser):
 def parse_args():
   '''
   Handle command line arguments
-  ./mcrawl1.py -h eychtipi.cs.uchicago.edu -p 80 -f testdir -n 5
+  ./mcrawl2.py -h eychtipi.cs.uchicago.edu -p 80 -f testdir -n 5
   '''
   parser = argparse.ArgumentParser(add_help=False)
   parser.add_argument('-n', '--numthreads', type=int)
@@ -59,7 +59,7 @@ def parse_args():
     args.numthreads = 1
   return args
 
-def crawl_page(hostname, port, cookie, page):
+def crawl_page(hostname, port, cookies, page):
   '''Fetch a single page and write to local''' 
   mysock = socket.socket()
   mysock.connect((hostname, port))
@@ -68,11 +68,11 @@ def crawl_page(hostname, port, cookie, page):
   print('Worker {} is fetching {}...'.format(worker, page))
 
   # Get cookie on first attempt or a fresh one after 402
-  if not cookie:
+  if not worker in cookies:
     request = 'GET /{} HTTP/1.0\r\nHost: {}\r\n\r\n'.format(page, hostname)
   else:
     request = ''.join(['GET /{} HTTP/1.0\r\n',
-  'Host: {}\r\n', 'Cookie:{} \r\n\r\n']).format(page, hostname, cookie[0])
+  'Host: {}\r\n', 'Cookie:{} \r\n\r\n']).format(page, hostname, cookies[worker])
 
   mysock.send(request.encode())
   
@@ -89,16 +89,15 @@ def crawl_page(hostname, port, cookie, page):
         return None
       elif status == 402:
         print('Worker {} encounters 402 when fetching {}...'.format(worker, page))
-        if cookie:
-          cookie.pop()  # Reset cookie upon 402
+        cookies.pop(worker, None)  # Reset cookie upon 402
         return -1
       elif status == 500:
         print('Internal Server Error')
         sys.exit(1)
-  if not cookie:
+  if not worker in cookies:
     temp = re.findall(r'Set-Cookie: (.+?);', header)
     if temp:
-      cookie.append(temp[0])
+      cookies[worker] = temp[0]
   
   data = bytearray()
   data.extend(content)
@@ -127,13 +126,13 @@ def crawl_page(hostname, port, cookie, page):
     htmlparser.feed(data)
     return htmlparser.outlinks
 
-def crawl_web(hostname, port, cookie, to_crawl, crawled):
+def crawl_web(hostname, port, cookies, to_crawl, crawled):
   '''Fetch all pages given a single-seeded queue'''
   while True:
     page = to_crawl.get()
     if page is None:
       break
-    outlinks = crawl_page(hostname, port, cookie, page)
+    outlinks = crawl_page(hostname, port, cookies, page)
     crawled.append(page)
     if outlinks is not None:
       if outlinks == -1:  # Status 402, put page back into queue
@@ -157,10 +156,10 @@ def main():
   to_crawl.put('index.html')
   crawled = []
   threads = []
-  cookie = []
+  cookies = {}
   for i in range(args.numthreads):
     t = threading.Thread(target=crawl_web,
-      args=(args.hostname, args.port, cookie, to_crawl, crawled))
+      args=(args.hostname, args.port, cookies, to_crawl, crawled))
     t.daemon = True
     threads.append(t)
 
