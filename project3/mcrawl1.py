@@ -70,40 +70,39 @@ def crawl_page(hostname, port, lock, page):
   # Get cookie on first attempt or a fresh one after 402
   global cookie
 
-  lock.acquire()
-  if not cookie:
-    request = 'GET /{} HTTP/1.0\r\nHost: {}\r\n\r\n'.format(page, hostname)
-  else:
-    request = ''.join(['GET /{} HTTP/1.0\r\n',
-  'Host: {}\r\n', 'Cookie:{} \r\n\r\n']).format(page, hostname, cookie)
+  with lock:
+    if not cookie:
+      request = 'GET /{} HTTP/1.0\r\nHost: {}\r\n\r\n'.format(page, hostname)
+    else:
+      request = ''.join(['GET /{} HTTP/1.0\r\n',
+    'Host: {}\r\n', 'Cookie:{} \r\n\r\n']).format(page, hostname, cookie)
 
-  mysock.send(request.encode())
-  
-  # Check status code and cookie information in header
-  header, content = mysock.recv(330).split(b'\r\n\r\n')
-  header = header.decode()
+    mysock.send(request.encode())
+    
+    # Check status code and cookie information in header
+    header, content = mysock.recv(330).split(b'\r\n\r\n')
+    header = header.decode()
 
-  temp = re.findall(r'HTTP/\S+ (\d+)', header)
-  if temp:
-    status = int(temp[0])
-    if status != 200:
-      if status == 404:
-        print('Worker {} encounters 404 when fetching {}'.format(worker, page))
-        return None
-      elif status == 402:
-        print('Worker {} encounters 402 when fetching {}...'
-          .format(worker, page))
-        if cookie:
-          cookie = None  # Reset cookie upon 402
-        return -1
-      elif status == 500:
-        print('Internal Server Error')
-        sys.exit(1)
-  if not cookie:
-    temp = re.findall(r'Set-Cookie: (.+?);', header)
+    temp = re.findall(r'HTTP/\S+ (\d+)', header)
     if temp:
-      cookie = temp[0]
-  lock.release()
+      status = int(temp[0])
+      if status != 200:
+        if status == 404:
+          print('Worker {} encounters 404 when fetching {}'.format(worker, page))
+          return None
+        elif status == 402:
+          print('Worker {} encounters 402 when fetching {}...'
+            .format(worker, page))
+          if cookie:
+            cookie = None  # Reset cookie upon 402
+          return -1
+        elif status == 500:
+          print('Internal Server Error')
+          sys.exit(1)
+    if not cookie:
+      temp = re.findall(r'Set-Cookie: (.+?);', header)
+      if temp:
+        cookie = temp[0]
   
   data = bytearray()
   data.extend(content)
@@ -182,6 +181,8 @@ def main():
 
   for t in threads:
     t.join(timeout=15)
+
+  sys.exit(0)
 
 if __name__ == '__main__':
   main()

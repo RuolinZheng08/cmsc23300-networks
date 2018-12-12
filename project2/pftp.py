@@ -24,7 +24,7 @@ class Session(object):
   def __init__(self, *args):
     self.file = args[0] or None
     self.path = args[1] or None
-    self.hostname = args[2] or None
+    self.server = args[2] or None
     self.port = args[3] or 21
     self.username = args[4] or 'anonymous'
     self.password = args[5] or 'user@localhost.localnet'
@@ -53,7 +53,7 @@ def parse_args():
     download')
   parser.add_argument('-t', '--thread', type=str, help='specifies the \
     para-config-file for multi-thread downloads')
-  parser.add_argument('-s', '--hostname', type=str, help='specifies the server \
+  parser.add_argument('-s', '--server', type=str, help='specifies the server \
     to download the file from')
   parser.add_argument('-p', '--port', type=int, help='specifies the port to be \
     used when contacting the server')
@@ -117,7 +117,7 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
   # Control Process
   ctrl_sock = socket.socket()
   try:
-    ctrl_sock.connect((sess.hostname, sess.port))
+    ctrl_sock.connect((sess.server, sess.port))
   except:
     myexit(1)
 
@@ -136,7 +136,7 @@ def session_handler(sess, logfd, data, num_thrd=None, tid=None):
   # Data Process
   data_sock = socket.socket()
   try:
-    data_sock.connect((sess.hostname, data_port))
+    data_sock.connect((sess.server, data_port))
   except:
     myexit(1)
 
@@ -209,7 +209,7 @@ def main():
   if args.version:
     print('pftp, Version: 0.1, Author: Ruolin Zheng')
     myexit(0)
-  if args.thread and (args.file or args.hostname):
+  if args.thread and (args.file or args.server):
     myexit(4)
 
   # Logging
@@ -279,19 +279,19 @@ def main():
     myexit(0)
 
   # Normal
-  elif args.file and args.hostname:
+  elif args.file and args.server:
     path = None
-    args.hostname = re.sub(r'ftp://', '', args.hostname)
-    path = re.split(r'/', args.hostname)
+    args.server = re.sub(r'ftp://', '', args.server)
+    path = re.split(r'/', args.server)
     if len(path) > 1:
-      args.hostname = path[0]
+      args.server = path[0]
       path = '/'.join(path[1:])
     else:
       path = None
     if path == '':
       path = None
 
-    sess = Session(args.file, path, args.hostname, args.port, \
+    sess = Session(args.file, path, args.server, args.port, \
       args.username, args.password)
     data, fsize = session_handler(sess, logfd, bytearray())
 
