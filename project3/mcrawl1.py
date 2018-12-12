@@ -66,7 +66,6 @@ def crawl_page(hostname, port, lock, page):
 
   # Get cookie on first attempt or a fresh one after 402
   global cookie
-
   with lock:
     if not cookie:
       request = 'GET /{} HTTP/1.0\r\nHost: {}\r\n\r\n'.format(page, hostname)
@@ -146,7 +145,7 @@ def crawl_web(hostname, port, lock, to_crawl, crawled):
         dirname = re.findall(r'^(.+/).*', page)
         for link in outlinks:
           if not link in crawled and not link in to_crawl.queue:
-            if dirname:
+            if dirname and not re.search(r'\.\.', link):
               link = dirname[0] + link
             to_crawl.put(link)
     to_crawl.task_done()
