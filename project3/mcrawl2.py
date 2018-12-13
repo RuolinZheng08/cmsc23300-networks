@@ -50,11 +50,12 @@ def parse_args():
   parser.add_argument('-p', '--port', type=int)
   parser.add_argument('-f', '--dirname', type=str)
   args = parser.parse_args()
-  if not args.hostname or not args.port or not args.dirname:
+  if None in [args.numthreads, args.hostname, args.port, args.dirname]:
     print('Error: Missing required arguments.', file=sys.stderr)
     sys.exit(1)
-  if not args.numthreads:
-    args.numthreads = 1
+  if not 0 < args.numthreads < 8:
+    print('Error: Invalid max-flow value, 4 - 6 recommended.', file=sys.stderr)
+    sys.exit(0)
   return args
 
 def crawl_page(hostname, port, cookies, page):
@@ -110,7 +111,7 @@ def crawl_page(hostname, port, cookies, page):
 
   mysock.close()
 
-  print('Worker {} has fetched {}...'.format(worker, page))
+  # print('Worker {} has fetched {}...'.format(worker, page))
 
   fname = re.sub(r'/', '_', page)
 
