@@ -142,8 +142,9 @@ def crawl_web(hostname, port, cookies, to_crawl, crawled):
       else:
         dirname = re.findall(r'^(.+/).*', page)
         for link in outlinks:
-          if not link in crawled and not link in to_crawl.queue:
-            if dirname and not re.search(r'\.\.', link):
+          if not link in crawled and not link in to_crawl.queue \
+          and not re.search(r'\.\.', link):
+            if dirname:
               link = dirname[0] + link
             to_crawl.put(link)
     to_crawl.task_done()
