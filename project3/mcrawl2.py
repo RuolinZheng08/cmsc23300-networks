@@ -10,6 +10,7 @@ import sys
 import threading
 import queue
 import time
+import codecs
 from html.parser import HTMLParser
 
 class MyHTMLParser(HTMLParser):
